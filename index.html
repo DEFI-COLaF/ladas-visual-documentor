@@ -884,12 +884,17 @@ function App() {
   const page = pages[pageIdx];
   const zones = page.zones;
 
-  const types = useMemo(() => Object.keys(zoneCounts(zones)).sort(), [zones]);
+  const allTypes = useMemo(() => {
+    const s = new Set();
+    pages.forEach(p => p.zones.forEach(z => s.add(z.label)));
+    return [...s].sort();
+  }, [pages]);
   const colors = useMemo(() => {
     const m = {};
-    types.forEach(t => { m[t] = colorFor(t, types); });
+    allTypes.forEach(t => { m[t] = colorFor(t, allTypes); });
     return m;
-  }, [types]);
+  }, [allTypes]);
+  const types = useMemo(() => Object.keys(zoneCounts(zones)).sort(), [zones]);
 
   const [visibleTypes, setVisibleTypes] = useState(() => new Set(types));
   const [selectedId, setSelectedId] = useState(null);
