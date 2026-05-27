@@ -1,0 +1,929 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SegmOnto Annotation Browser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg:        #f6f6f4;
+    --surface:   #ffffff;
+    --panel:     #fafaf8;
+    --border:    #e7e5e0;
+    --border-strong: #d4d2cc;
+    --ink:       #1a1a18;
+    --ink-2:     #4a4a45;
+    --ink-3:     #8a8a82;
+    --ink-4:     #b5b3ab;
+    --accent:    #1a1a18;
+    --selected-bg: #f0efe9;
+    --hover-bg:  #f3f2ec;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: 'Inter', -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+  code, .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #root { height: 100vh; display: flex; flex-direction: column; }
+
+  /* ---------- HEADER ---------- */
+  .app-header {
+    display: flex; align-items: center; gap: 24px;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand-title { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+  .brand-sub { color: var(--ink-3); font-size: 12px; letter-spacing: 0.02em; text-transform: uppercase; }
+  .header-meta { color: var(--ink-2); font-size: 13px; display: flex; align-items: center; gap: 16px; margin-left: auto; }
+  .header-meta .sep { color: var(--ink-4); }
+  .pager { display: flex; align-items: center; gap: 8px; }
+  .pager button {
+    background: var(--surface); border: 1px solid var(--border-strong); color: var(--ink-2);
+    width: 28px; height: 28px; border-radius: 6px; cursor: pointer; font-size: 14px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .pager button:hover:not(:disabled) { background: var(--hover-bg); }
+  .pager button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* ---------- MAIN LAYOUT ---------- */
+  .main {
+    flex: 1 1 auto; display: grid;
+    grid-template-columns: minmax(0, 1fr) 460px;
+    min-height: 0;
+  }
+
+  /* ---------- VIEWER ---------- */
+  .viewer { position: relative; background: #ebeae5; overflow: hidden; user-select: none; }
+  .viewer-canvas { position: absolute; inset: 0; cursor: grab; }
+  .viewer-canvas.dragging { cursor: grabbing; }
+  .viewer-stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  .viewer-stage img { display: block; width: 100%; height: 100%; pointer-events: none; }
+  .viewer-stage svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; }
+  .zone-poly { transition: opacity 120ms ease; cursor: pointer; }
+  .zone-poly.dim { opacity: 0.08; }
+  .zone-poly.selected { stroke-width: 6; }
+
+  /* legend overlay */
+  .legend {
+    position: absolute; top: 16px; left: 16px;
+    background: rgba(255,255,255,0.96); backdrop-filter: blur(6px);
+    border: 1px solid var(--border-strong); border-radius: 10px;
+    padding: 12px 14px; min-width: 220px; max-width: 280px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+    font-size: 12px;
+  }
+  .legend-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .legend-title { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
+  .legend-toggle { background: none; border: none; cursor: pointer; color: var(--ink-3); font-size: 11px; padding: 2px 4px; }
+  .legend-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.1); flex: 0 0 auto; }
+  .legend-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend-count { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 11px; }
+
+  /* zoom controls */
+  .zoom-ctl {
+    position: absolute; bottom: 16px; left: 16px;
+    background: rgba(255,255,255,0.96); backdrop-filter: blur(6px);
+    border: 1px solid var(--border-strong); border-radius: 10px;
+    display: flex; align-items: center; padding: 4px; gap: 2px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+  }
+  .zoom-ctl button {
+    background: none; border: none; cursor: pointer; padding: 6px 10px;
+    color: var(--ink-2); font-size: 14px; border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: inherit;
+  }
+  .zoom-ctl button:hover { background: var(--hover-bg); }
+  .zoom-ctl .scale-label { font-size: 11px; color: var(--ink-3); padding: 0 8px; min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+
+  /* hover floater */
+  .zone-tip {
+    position: absolute; pointer-events: none;
+    background: var(--ink); color: white; font-size: 11px;
+    padding: 4px 8px; border-radius: 5px;
+    transform: translate(-50%, -100%) translateY(-8px);
+    white-space: nowrap; font-family: 'JetBrains Mono', monospace;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    z-index: 10;
+  }
+
+  /* ---------- RIGHT PANEL ---------- */
+  .side {
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .side-section { padding: 12px 18px; border-bottom: 1px solid var(--border); }
+  .side-section:last-child { border-bottom: none; }
+  .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .section-label .count-chip { background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 4px; font-size: 10px; color: var(--ink-2); letter-spacing: 0.03em; }
+
+  .search {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg); border: 1px solid var(--border);
+    padding: 8px 12px; border-radius: 8px;
+  }
+  .search input {
+    flex: 1; min-width: 0; background: none; border: none; outline: none;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--ink);
+  }
+  .search input::placeholder { color: var(--ink-4); }
+  .search .icon { color: var(--ink-3); font-size: 13px; }
+  .search-results { margin-top: 10px; max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+  .search-row {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+    border-radius: 5px; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  }
+  .search-row:hover { background: var(--hover-bg); }
+  .search-row .id-text { flex: 1; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .search-row .type-text { color: var(--ink-3); font-size: 10px; }
+
+  .filter-grid { display: flex; flex-direction: column; gap: 3px; }
+  .filter-row {
+    display: flex; align-items: center; gap: 9px;
+    padding: 5px 9px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface); cursor: pointer; transition: all 100ms;
+    text-align: left; width: 100%; font: inherit; color: var(--ink);
+  }
+  .filter-row:hover { background: var(--hover-bg); border-color: var(--border-strong); }
+  .filter-row.active { background: var(--selected-bg); border-color: var(--ink); }
+  .filter-row.muted { opacity: 0.45; }
+  .filter-row .sw { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.08); flex: 0 0 auto; }
+  .filter-row .lbl { flex: 1; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .filter-row .cnt { color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; }
+
+  .filter-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+  .filter-actions button {
+    background: var(--surface); border: 1px solid var(--border-strong); color: var(--ink-2);
+    font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 5px; cursor: pointer;
+  }
+  .filter-actions button:hover { background: var(--hover-bg); }
+
+  /* docs panel */
+  .docs { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 16px 18px 32px; }
+  .docs-empty { color: var(--ink-3); font-size: 13px; padding: 24px 4px; text-align: center; line-height: 1.55; }
+  .docs-empty .big { font-size: 24px; opacity: 0.4; display: block; margin-bottom: 8px; font-family: 'JetBrains Mono', monospace; }
+
+  .docs-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--border);
+  }
+  .docs-head .sw-big { width: 18px; height: 18px; border-radius: 5px; flex: 0 0 auto; margin-top: 2px; border: 1px solid rgba(0,0,0,0.1); }
+  .docs-title { flex: 1; min-width: 0; }
+  .docs-type { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 15px; color: var(--ink); word-break: break-word; }
+  .docs-fam { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); margin-top: 2px; }
+  .docs-zone-id { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-3); margin-top: 6px; word-break: break-all; }
+
+  .docs-block { margin-bottom: 14px; }
+  .docs-block:last-child { margin-bottom: 0; }
+  .docs-block .h {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--ink-3); font-weight: 600; margin-bottom: 6px;
+  }
+  .docs-block .body { font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+  .docs-block .body code, .docs-block .body .mono { background: var(--bg); padding: 1px 5px; border-radius: 3px; font-size: 12px; color: var(--ink); }
+  .chip-list { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    background: var(--bg); border: 1px solid var(--border);
+    padding: 2px 7px; border-radius: 4px; color: var(--ink-2);
+  }
+
+  .tei-block {
+    background: #1e1e1c; color: #f0eee5;
+    padding: 10px 12px; border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    line-height: 1.5; overflow-x: auto;
+  }
+  .tei-when { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); margin: 10px 0 4px; font-weight: 600; }
+
+  .sub-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+  .sub-section .sub-head {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px;
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  }
+  .sub-section .sub-head .lvl {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em;
+    background: var(--bg); border: 1px solid var(--border);
+    padding: 2px 6px; border-radius: 3px; color: var(--ink-3); font-family: 'Inter', sans-serif;
+  }
+
+  /* page thumbnail strip */
+  .page-strip {
+    position: absolute; bottom: 16px; right: 16px;
+    background: rgba(255,255,255,0.96); backdrop-filter: blur(6px);
+    border: 1px solid var(--border-strong); border-radius: 10px;
+    padding: 8px; display: flex; gap: 6px; align-items: center;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+    max-width: 320px; overflow-x: auto;
+  }
+  .page-thumb {
+    width: 40px; height: 55px; border-radius: 4px; overflow: hidden;
+    border: 2px solid transparent; cursor: pointer; flex: 0 0 auto;
+    transition: border-color 120ms;
+  }
+  .page-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .page-thumb.active { border-color: var(--ink); }
+  .page-thumb:hover:not(.active) { border-color: var(--border-strong); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- React + Babel (CDN — requires internet on first load) -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+
+<!-- SegmOnto vocabulary -->
+<script>
+// SegmOnto zone documentation — extracted from the SegmOnto LaTeX guidelines.
+window.SEGMONTO = {
+  level1: {
+    MainZone: {
+      family: "Primary text",
+      definition: "The MainZone is the main area containing the text. It excludes any paratext and can either be a single block or multiple columns.",
+      mustSpec: null,
+      maySpec: ["Head","P","PLabelled","PStructured","PQuoted","PStyled","Item","Lg","Address","Signed","Ab","Continued","Maths","Dateline"],
+      specialCases: null, postProcessing: null, tei: null,
+    },
+    MarginTextZone: {
+      family: "Primary text",
+      definition: "Any text contained in the margins, regardless of position (upper, lower, outer, or inner — including between columns).",
+      mustSpec: null,
+      maySpec: ["P","PLabelled","PStructured","PStyled","Item","Lg","Ab","ManuscriptAddendum","Continued"],
+      specialCases: null, postProcessing: null, tei: "<note>",
+    },
+    TitlePageZone: {
+      family: "Primary text",
+      definition: "Characterises an entire page (not a section). The title page is traditionally the first page and provides bibliographic / identifying information: title, date, printer(s), publisher(s), author(s), etc.",
+      mustSpec: ["Ab"], maySpec: null, specialCases: null, postProcessing: null,
+      tei: [
+        { when: "content is manually annotated", value: "<titlePage> with structured TEI content" },
+        { when: "content is NOT manually annotated", value: '<div type="titlePage">' },
+      ],
+    },
+    GraphicZone: {
+      family: "Media",
+      definition: "Contains a piece of non-textual media (image, map, photograph, video) together with its caption and possibly descriptive paragraphs.",
+      mustSpec: null,
+      maySpec: ["Head","Part","P","Decoration","Maths"],
+      specialCases: "If it contains several images (possibly with their own subcaptions), each is annotated as GraphicZone-Part inside the GraphicZone.",
+      postProcessing: null, tei: "<figure>",
+    },
+    FigureZone: {
+      family: "Media",
+      definition: "Textual elements featured within a frame, with a title and/or caption. Separated from the rest of the text, identified by different font / size. Mostly used for code snippets.",
+      mustSpec: null, maySpec: ["Head","Ab"], specialCases: null, postProcessing: null, tei: '<figure type="code">',
+    },
+    TableZone: {
+      family: "Media",
+      definition: "A table of any kind with its associated caption. Structured arrangement of facts, text, or numbers in columns and rows (≥2 corresponding columns).",
+      mustSpec: null, maySpec: ["Head","Ab"],
+      specialCases: "Tables of contents with clearly separated page numbers and headings on a single line are annotated TableZone; otherwise use MainZone-PStructured.",
+      postProcessing: "Use a table extractor + the table's coordinates to encode its content. LADaS annotations do not handle the table's content.",
+      tei: [
+        { when: "a table extractor is used", value: "<table> with <row> and <cell>" },
+        { when: "a table extractor is NOT used", value: '<figure type="table">' },
+      ],
+    },
+    FormZone: {
+      family: "Media",
+      definition: "Documents with fields to fill in. FormZone encompasses the form as a whole.",
+      mustSpec: null, maySpec: ["Part","Head","Field"], specialCases: null, postProcessing: "See the Field section.", tei: '<figure type="form">',
+    },
+    MusicZone: {
+      family: "Media",
+      definition: "Used to annotate sheet music, whether printed or handwritten.",
+      mustSpec: null, maySpec: ["Ab"], specialCases: null, postProcessing: null, tei: "<notatedMusic>",
+    },
+    DigitizationArtefactZone: {
+      family: "Material",
+      definition: "Contains any element external to the document and due to the digitisation process (e.g. mention of the online repository).",
+      mustSpec: ["Ab"], maySpec: null, specialCases: null, postProcessing: null, tei: '<ab type="digitisation-artefact">',
+    },
+    NumberingZone: {
+      family: "Material",
+      definition: "Contains any kind of numbering — numbers or letters. Generally contains the page, folio, or document number.",
+      mustSpec: ["Ab"], maySpec: null, specialCases: null, postProcessing: null, tei: '<fw type="numbering"> or <milestone>',
+    },
+    RunningTitleZone: {
+      family: "Material",
+      definition: "Traditionally appears at the top of the page or double-page (sometimes the bottom). Contains the running title (or abbreviated title) of the current section.",
+      mustSpec: ["Ab"], maySpec: null, specialCases: null, postProcessing: null, tei: '<fw type="runningTitle">',
+    },
+    StampZone: {
+      family: "Material",
+      definition: "Stamps — usually library stamps or stamps from a postal service.",
+      mustSpec: null, maySpec: null,
+      specialCases: "Whenever there is a stamp of a dateline, StampZone is prioritised.",
+      postProcessing: null, tei: "<stamp>",
+    },
+    QuireMarksZone: {
+      family: "Material",
+      definition: "Contains a quire signature, catchword, or any element relative to the material organisation of the source (excluding page, folio, or item numbers). Generally appears at the bottom of the page and MUST be close to the text.",
+      mustSpec: ["Ab"], maySpec: null, specialCases: null, postProcessing: null, tei: '<fw type="quiremarks">',
+    },
+    DamageZone: {
+      family: "Material",
+      definition: "Area of the page that is materially damaged (tear, stain, missing chunk, etc.). Included in the ALTO tag set; see the SegmOnto guidelines for current status.",
+      mustSpec: null, maySpec: null, specialCases: null, postProcessing: null, tei: null,
+    },
+    SealZone: {
+      family: "Material",
+      definition: "Wax or impressed seal applied to the document — distinct from a stamp.",
+      mustSpec: null, maySpec: null, specialCases: null, postProcessing: null, tei: "<seal>",
+    },
+    DropCapitalZone: {
+      family: "Material",
+      definition: "Standalone bounding box around a drop capital (legacy alias — modern SegmOnto recommends using a level-2 -DropCapital on a MainZone instead).",
+      mustSpec: null, maySpec: null, specialCases: null, postProcessing: null, tei: null,
+    },
+  },
+  level2: {
+    Head: {
+      group: "Text",
+      definition: "A segment of text at the top of a section, characterised by a typographic variation from the body: bold, italics, upper-case and/or a larger font. Headings can be centred and/or numbered.",
+      mustSpecify: null, maySpecify: ["MainZone","GraphicZone","FigureZone","TableZone","FormZone"],
+      specialCases: "When there are several levels of headings, each heading level is annotated with its own bounding box.",
+      postProcessing: null, tei: "<head>",
+    },
+    HeadStructured: {
+      group: "Text",
+      definition: "Like headings, marks the start of a section, but organised through typographic variations AND punctuation marks (hyphens, semi-colons, full stops, parentheses) — similar to structured bibliographic entries.",
+      mustSpecify: null, maySpecify: ["MainZone"], specialCases: null, postProcessing: null, tei: '<head type="structured">',
+    },
+    P: {
+      group: "Text",
+      definition: "A (prose) paragraph: at least one sentence, beginning on a new line, possibly indented. The classic P is NOT numbered.",
+      mustSpecify: null, maySpecify: ["MainZone","MarginTextZone","GraphicZone"],
+      specialCases: "Prose poetry — continuous text blocks with few line breaks — SHOULD be annotated P, or PQuoted when the poem is indented.",
+      postProcessing: "Encode lines in prose poetry as <l> in TEI.", tei: "<p>",
+    },
+    PLabelled: {
+      group: "Text",
+      definition: "Prose paragraphs beginning with a heading. The heading is the first segment of the paragraph and is marked by typographic variation (underline, bold, italics) and/or a punctuation mark (usually full stop or colon).",
+      mustSpecify: null, maySpecify: ["MainZone","MarginTextZone"],
+      specialCases: "Numbered paragraphs MUST be annotated as labelled paragraphs (not confused with list items). Footnotes SHOULD be annotated PLabelled unless they contain solely a bibliographic reference, in which case PStructured.",
+      postProcessing: "Separate the label (name of the speaker, title of the paragraph, etc.) from the paragraph itself.", tei: '<p rend="labelled">',
+    },
+    PStructured: {
+      group: "Text",
+      definition: "Not prose paragraphs. Highly structured and organised through typographic variations and punctuation marks. Most common: bibliographic, catalogue, dictionary entries.",
+      mustSpecify: null, maySpecify: ["MainZone","MarginTextZone"],
+      specialCases: 'Bibliographic entries used as titles → HeadStructured. In a table of contents (or of tables / figures), when entries exceed two lines AND the page number is not separated from the entry, each entry SHOULD be PStructured.',
+      postProcessing: null,
+      tei: [
+        { when: "a bibliographic entry AND annotated manually", value: "<bibl>" },
+        { when: "in any other case", value: '<p type="structured">' },
+      ],
+    },
+    PQuoted: {
+      group: "Text",
+      definition: "Long quotation paragraphs, separated from the body, with larger outer margins. Font CAN be smaller than the body. Sometimes enclosed in quotation marks.",
+      mustSpecify: null, maySpecify: ["MainZone"],
+      specialCases: "May have a hanging indent. If the quoted paragraph begins with opening quotation marks, it MUST be annotated PQuoted (instead of PLabelled) — the indentation is more characteristic than the typographic marker.",
+      postProcessing: null, tei: "<quote>",
+    },
+    PStyled: {
+      group: "Text",
+      definition: "Graphically distinct from regular paragraphs (e.g. between parentheses, italics, small upper case, centred). Appears as stage directions in theatre, catalogue descriptions in sales catalogues, or abstracts in scientific articles.",
+      mustSpecify: null, maySpecify: ["MainZone","MarginTextZone"],
+      specialCases: "When an image's caption appears outside the GraphicZone and within the body, it MUST be annotated MainZone-PStyled.",
+      postProcessing: "Distinguish style type (italics, bold) to specify @rend.", tei: '<p rend="styled">',
+    },
+    Item: {
+      group: "Text",
+      definition: "A list item — usually shorter than a paragraph — in an ordered list of at least two consecutive elements. Items begin with a typographic marker (bullet, hyphen, number), end with a comma or semi-colon (except the last item, full stop), and do NOT necessarily start with a capital letter.",
+      mustSpecify: null, maySpecify: ["MainZone","MarginTextZone"],
+      specialCases: 'Lists of names with an indented anaphora and no typographic marker (e.g. "Monsieur M., Monsieur X.") MUST be annotated Item.',
+      postProcessing: null, tei: "<item>",
+    },
+    Lg: {
+      group: "Text",
+      definition: "A related group of verse lines. A verse line is a short fragment (a few words), starting with a capital letter and often forming incomplete sentences. Mostly poetry and theatre.",
+      mustSpecify: null, maySpecify: ["MainZone","MarginTextZone"], specialCases: null, postProcessing: null, tei: "<lg>",
+    },
+    Dateline: {
+      group: "Text",
+      definition: "A brief description of place, date, and time. Prefixed or suffixed to the main text as a heading or trailer.",
+      mustSpecify: null, maySpecify: ["MainZone"],
+      specialCases: "Found in letters, reports, press articles. When used as a running title → RunningTitleZone. If there is a stamp of a dateline, StampZone is prioritised.",
+      postProcessing: null, tei: "<dateline>",
+    },
+    Address: {
+      group: "Text",
+      definition: "Isolated segment of text containing a postal address. Usually aligned to one side of the page; refers to a person, several people, or an organisation. Mostly in letters.",
+      mustSpecify: null, maySpecify: ["MainZone"], specialCases: null, postProcessing: null, tei: "<address>",
+    },
+    Signed: {
+      group: "Text",
+      definition: "Isolated segment of text that asserts the responsibility of the text or segment (e.g. author of a letter or report). Generally right-aligned.",
+      mustSpecify: null, maySpecify: ["MainZone"], specialCases: null, postProcessing: null, tei: "<signed>",
+    },
+    Ab: {
+      group: "Text",
+      definition: "Anonymous block — textual content that doesn't fit any other class, but is important to identify.",
+      mustSpecify: ["DigitizationArtefactZone","NumberingZone","RunningTitleZone","QuireMarksZone","TitlePageZone"],
+      maySpecify: ["MainZone","MarginTextZone","FigureZone","TableZone","FormZone"],
+      specialCases: "Can be used for URIs or unspecified floating text. May annotate important text inside a GraphicZone that is not its caption.",
+      postProcessing: null, tei: "<ab>",
+    },
+    Continued: {
+      group: "Text",
+      definition: "Cut textual content — either at the top of a page or column, or because the content has been interrupted by another zone (GraphicZone, TableZone, etc.). The original element it belongs to is not always known.",
+      mustSpecify: null, maySpecify: ["MainZone","MarginTextZone","TableZone"],
+      specialCases: null,
+      postProcessing: "Link the Continued element with its corresponding previous zone (e.g. MainZone-P on the previous page, or MainZone-Item above an image).",
+      tei: [
+        { when: "the preceding element is found", value: '<p rend="styled/quoted/etc."> or <item>' },
+        { when: "the preceding element is NOT found", value: '<ab rend="continued">' },
+      ],
+    },
+    Part: {
+      group: "Media & Other",
+      definition: "A grouping of several elements within a broader zone.",
+      mustSpecify: null, maySpecify: ["GraphicZone","FormZone"],
+      specialCases: "GraphicZone-Part: used when several media with subcaptions appear inside a GraphicZone, or for floating text surrounding a diagram. FormZone-Part: groups fields by clear category.",
+      postProcessing: null, tei: "<graphic>",
+    },
+    Decoration: {
+      group: "Media & Other",
+      definition: "Ornamental visual elements — decorative headers, separators, etc.",
+      mustSpecify: ["GraphicZone"], maySpecify: null, specialCases: null, postProcessing: null, tei: '<graphic type="decoration">',
+    },
+    Maths: {
+      group: "Media & Other",
+      definition: "Elements of scientific format language distinct from natural language (math symbols, formulas, chemical equations). MUST be graphically separate from the body.",
+      mustSpecify: null, maySpecify: ["MainZone"], specialCases: null, postProcessing: null, tei: '<graphic type="maths">',
+    },
+    ManuscriptAddendum: {
+      group: "Media & Other",
+      definition: "Any handwritten addition to the document, except for form fields.",
+      mustSpecify: ["MarginTextZone"], maySpecify: null, specialCases: null, postProcessing: null, tei: '<note type="handwritten">',
+    },
+    Field: {
+      group: "Media & Other",
+      definition: "Specific to a FormZone. Encompasses the field's heading (usually printed or typewritten) AND the response — handwritten or empty.",
+      mustSpecify: ["FormZone"], maySpecify: null,
+      specialCases: "When handwritten responses overtake the field's boundaries in a way that the text is explicitly linked to the previous field, the bounding box SHOULD extend to encompass the whole response.",
+      postProcessing: "Use a key-value approach to extract each field's content (title + response, or lack thereof).", tei: "<cell>",
+    },
+    DropCapital: {
+      group: "Media & Other",
+      definition: "Any type of initial letter occupying a space corresponding to several lines of the main text, or bearing significant ornamentation. Can be historiated, ornated, flourished, or painted — excluding the following text line.",
+      mustSpecify: null, maySpecify: ["MainZone"], specialCases: null,
+      postProcessing: "Attach the drop capital to its associated word.", tei: null,
+    },
+  },
+};
+
+window.splitLabel = function(label) {
+  const idx = label.indexOf("-");
+  if (idx < 0) return { base: label, modifier: null };
+  return { base: label.slice(0, idx), modifier: label.slice(idx + 1) };
+};
+</script>
+
+<!-- Generated page data -->
+<script src="data.js"></script>
+
+<!-- App (inlined JSX — works with file://) -->
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+const PALETTE = [
+  "#3B82F6","#EF4444","#10B981","#F59E0B","#8B5CF6",
+  "#EC4899","#14B8A6","#F97316","#6366F1","#84CC16",
+  "#06B6D4","#A855F7","#D946EF","#22C55E","#FB7185",
+  "#0EA5E9","#EAB308","#7C3AED","#DC2626","#65A30D",
+  "#0891B2","#BE123C","#4F46E5","#15803D","#B91C1C",
+];
+
+function colorFor(label, allLabels) {
+  const sorted = [...allLabels].sort();
+  const idx = sorted.indexOf(label);
+  return idx < 0 ? "#888" : PALETTE[idx % PALETTE.length];
+}
+
+function polyPoints(str) {
+  const nums = str.trim().split(/\s+/).map(Number);
+  const out = [];
+  for (let i = 0; i < nums.length; i += 2) out.push(nums[i] + "," + nums[i + 1]);
+  return out.join(" ");
+}
+
+function zoneCounts(zones) {
+  const m = {};
+  for (const z of zones) m[z.label] = (m[z.label] || 0) + 1;
+  return m;
+}
+
+// ---- Header ----
+function Header({ page, pageIdx, pageCount, onPrev, onNext }) {
+  return (
+    <header className="app-header">
+      <div className="brand">
+        <span className="brand-title">SegmOnto Browser</span>
+        <span className="brand-sub">ALTO · v4</span>
+      </div>
+      <div className="header-meta">
+        <span className="mono" style={{color:'var(--ink-2)'}}>{page.id}</span>
+        <span className="sep">·</span>
+        <span style={{maxWidth:280,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{page.title}</span>
+        <span className="sep">·</span>
+        <span className="mono" style={{color:'var(--ink-3)'}}>{page.width}×{page.height}px</span>
+        <div className="pager" style={{marginLeft:8}}>
+          <button onClick={onPrev} disabled={pageIdx === 0} aria-label="Previous">‹</button>
+          <span style={{fontSize:12,color:'var(--ink-3)',minWidth:36,textAlign:'center'}} className="mono">{pageIdx+1} / {pageCount}</span>
+          <button onClick={onNext} disabled={pageIdx >= pageCount-1} aria-label="Next">›</button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ---- Viewer ----
+function Viewer({ page, zones, colors, visibleTypes, selectedId, hoverId, setHoverId, setSelectedId, searchHighlightId, onPageSelect, pageIdx, pages }) {
+  const containerRef = useRef(null);
+  const [view, setView] = useState({ scale: 1, x: 0, y: 0, fitScale: 1 });
+  const [drag, setDrag] = useState(null);
+  const [hoverPt, setHoverPt] = useState(null);
+
+  const fit = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const pad = 24;
+    const s = Math.min((r.width - pad*2) / page.width, (r.height - pad*2) / page.height);
+    const x = (r.width - page.width * s) / 2;
+    const y = (r.height - page.height * s) / 2;
+    setView({ scale: s, x, y, fitScale: s });
+  }, [page.width, page.height]);
+
+  useEffect(() => { fit(); }, [fit]);
+  useEffect(() => {
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [fit]);
+
+  const onWheel = (e) => {
+    e.preventDefault();
+    const el = containerRef.current;
+    const r = el.getBoundingClientRect();
+    const cx = e.clientX - r.left, cy = e.clientY - r.top;
+    const delta = -e.deltaY * 0.0015;
+    const next = Math.max(view.fitScale * 0.5, Math.min(view.fitScale * 12, view.scale * (1 + delta)));
+    const k = next / view.scale;
+    setView(v => ({ ...v, scale: next, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k }));
+  };
+
+  const onDown = (e) => { if (e.button !== 0) return; setDrag({ x: e.clientX, y: e.clientY, ox: view.x, oy: view.y }); };
+  const onMove = (e) => {
+    if (drag) setView(v => ({ ...v, x: drag.ox + (e.clientX - drag.x), y: drag.oy + (e.clientY - drag.y) }));
+    const el = containerRef.current;
+    if (el) { const r = el.getBoundingClientRect(); setHoverPt({ x: e.clientX - r.left, y: e.clientY - r.top }); }
+  };
+  const onUp = () => setDrag(null);
+
+  const zoomBy = (f) => {
+    const el = containerRef.current;
+    const r = el.getBoundingClientRect();
+    const cx = r.width / 2, cy = r.height / 2;
+    const next = Math.max(view.fitScale * 0.5, Math.min(view.fitScale * 12, view.scale * f));
+    const k = next / view.scale;
+    setView(v => ({ ...v, scale: next, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k }));
+  };
+
+  const hoverZone = hoverId ? zones.find(z => z.id === hoverId) : null;
+  const hoverColor = hoverZone ? colors[hoverZone.label] : null;
+
+  return (
+    <div className="viewer" ref={containerRef}>
+      <div
+        className={"viewer-canvas" + (drag ? " dragging" : "")}
+        onWheel={onWheel} onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp}
+        onMouseLeave={() => { onUp(); setHoverPt(null); setHoverId(null); }}
+      >
+        <div className="viewer-stage" style={{ width: page.width, height: page.height, transform: `translate(${view.x}px,${view.y}px) scale(${view.scale})` }}>
+          <img src={page.image} alt={page.id} draggable={false} />
+          <svg viewBox={`0 0 ${page.width} ${page.height}`}>
+            {zones.map(z => {
+              const visible = visibleTypes.has(z.label);
+              const selected = selectedId === z.id;
+              const hovered = hoverId === z.id;
+              const searched = searchHighlightId === z.id;
+              const color = colors[z.label] || "#666";
+              const hi = selected || hovered || searched;
+              return (
+                <polygon
+                  key={z.id}
+                  className={"zone-poly" + (visible ? "" : " dim") + (selected ? " selected" : "")}
+                  points={polyPoints(z.points)}
+                  fill={color} fillOpacity={hi ? 0.35 : (visible ? 0.16 : 0.04)}
+                  stroke={color} strokeWidth={(hi ? 6 : 3) / view.scale}
+                  strokeOpacity={visible ? 1 : 0.3}
+                  onClick={(e) => { e.stopPropagation(); setSelectedId(z.id); }}
+                  onMouseEnter={() => setHoverId(z.id)}
+                  onMouseLeave={() => setHoverId(null)}
+                  style={{ pointerEvents: visible ? 'auto' : 'none' }}
+                />
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+
+      {hoverZone && hoverPt && (
+        <div className="zone-tip" style={{ left: hoverPt.x, top: hoverPt.y }}>
+          <span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:hoverColor,marginRight:6,verticalAlign:'middle'}}></span>
+          {hoverZone.label}
+        </div>
+      )}
+
+      {/* Legend */}
+      <LegendOverlay zones={zones} colors={colors} visibleTypes={visibleTypes} />
+
+      {/* Zoom controls */}
+      <div className="zoom-ctl">
+        <button onClick={() => zoomBy(1/1.4)} title="Zoom out">−</button>
+        <span className="scale-label">{Math.round((view.scale / view.fitScale) * 100)}%</span>
+        <button onClick={() => zoomBy(1.4)} title="Zoom in">+</button>
+        <button onClick={fit} title="Fit" style={{fontSize:11,padding:'6px 8px'}}>fit</button>
+      </div>
+
+      {/* Page thumbnail strip */}
+      <div className="page-strip">
+        {pages.map((p, i) => (
+          <div key={p.id} className={"page-thumb" + (i === pageIdx ? " active" : "")} onClick={() => onPageSelect(i)} title={p.id}>
+            <img src={p.image} alt={p.id} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LegendOverlay({ zones, colors, visibleTypes }) {
+  const [open, setOpen] = useState(true);
+  const counts = zoneCounts(zones);
+  const types = Object.keys(counts).sort();
+  return (
+    <div className="legend">
+      <div className="legend-head">
+        <span className="legend-title">Legend · {types.length} types</span>
+        <button className="legend-toggle" onClick={() => setOpen(o => !o)}>{open ? '−' : '+'}</button>
+      </div>
+      {open && types.map(t => (
+        <div key={t} className="legend-row" style={{opacity: visibleTypes.has(t) ? 1 : 0.4}}>
+          <span className="legend-swatch" style={{background: colors[t]}}></span>
+          <span className="legend-name mono" style={{fontSize:11}}>{t}</span>
+          <span className="legend-count mono">{counts[t]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---- Search ----
+function SearchPanel({ zones, colors, onPick }) {
+  const [q, setQ] = useState("");
+  const matches = useMemo(() => {
+    if (!q.trim()) return [];
+    const needle = q.trim().toLowerCase();
+    return zones.filter(z => z.id.toLowerCase().includes(needle) || z.label.toLowerCase().includes(needle)).slice(0, 8);
+  }, [q, zones]);
+
+  return (
+    <div className="side-section">
+      <div className="search">
+        <span className="icon">⌕</span>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by zone ID or type…" spellCheck={false} />
+        {q && <button onClick={() => setQ("")} style={{background:'none',border:'none',cursor:'pointer',color:'var(--ink-3)',fontSize:14}}>×</button>}
+      </div>
+      {matches.length > 0 && (
+        <div className="search-results">
+          {matches.map(z => (
+            <div key={z.id} className="search-row" onClick={() => onPick(z.id)}>
+              <span className="legend-swatch" style={{background:colors[z.label],width:10,height:10}}></span>
+              <span className="id-text">{z.id}</span>
+              <span className="type-text">{z.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Filter ----
+function FilterPanel({ zones, colors, visibleTypes, setVisibleTypes, selectedType, setSelectedType }) {
+  const counts = zoneCounts(zones);
+  const types = Object.keys(counts).sort();
+  const allOn = types.every(t => visibleTypes.has(t));
+
+  return (
+    <div className="side-section">
+      <div className="section-label">
+        <span>Zone types</span>
+        <span className="count-chip mono">{types.length} types · {zones.length} zones</span>
+        <button
+          onClick={() => setVisibleTypes(allOn ? new Set() : new Set(types))}
+          style={{marginLeft:'auto',background:'var(--surface)',border:'1px solid var(--border-strong)',color:'var(--ink-2)',font:'inherit',fontSize:11,padding:'3px 9px',borderRadius:5,cursor:'pointer'}}
+        >{allOn ? "hide all" : "show all"}</button>
+      </div>
+      <div className="filter-grid">
+        {types.map(t => {
+          const active = visibleTypes.has(t);
+          const isFocus = selectedType === t;
+          return (
+            <button
+              key={t}
+              className={"filter-row" + (active ? " active" : " muted")}
+              onClick={() => {
+                const next = new Set(visibleTypes);
+                if (next.has(t)) next.delete(t); else next.add(t);
+                setVisibleTypes(next);
+                setSelectedType(t);
+              }}
+              onDoubleClick={() => { setVisibleTypes(new Set([t])); setSelectedType(t); }}
+              title="Click: toggle · double-click: isolate"
+              style={isFocus ? {boxShadow:'0 0 0 2px var(--ink) inset',borderColor:'var(--ink)'} : undefined}
+            >
+              <span className="sw" style={{background:colors[t]}}></span>
+              <span className="lbl">{t}</span>
+              <span className="cnt">{counts[t]}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---- Docs ----
+function renderTei(tei) {
+  if (!tei) return <span className="mono" style={{color:'var(--ink-3)'}}>N/A</span>;
+  if (typeof tei === "string") return <div className="tei-block">{tei}</div>;
+  return (
+    <div>
+      {tei.map((t, i) => (
+        <div key={i}>
+          <div className="tei-when">if {t.when}</div>
+          <div className="tei-block">{t.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DocsBlock({ heading, children }) {
+  return (
+    <div className="docs-block">
+      <div className="h">{heading}</div>
+      <div className="body">{children}</div>
+    </div>
+  );
+}
+
+function ZoneDoc({ name, info, level, suppressMaySpec, suppressTei }) {
+  if (!info) {
+    return (
+      <DocsBlock heading="No documentation">
+        <span className="mono">{name}</span> is referenced in the ALTO tag set but is not described in the loaded SegmOnto guidelines.
+      </DocsBlock>
+    );
+  }
+  const specKey = level === 1 ? "maySpec" : "maySpecify";
+  const mustKey = level === 1 ? "mustSpec" : "mustSpecify";
+  const spec = info[specKey];
+  const must = info[mustKey];
+
+  return (
+    <>
+      <DocsBlock heading="Definition">{info.definition}</DocsBlock>
+      {!suppressTei && <DocsBlock heading="TEI mapping">{renderTei(info.tei)}</DocsBlock>}
+      {must && (
+        <div className="docs-block">
+          <div style={{display:'flex',alignItems:'baseline',flexWrap:'wrap',gap:6}}>
+            <span className="h" style={{marginBottom:0,flexShrink:0}}>{level === 1 ? "must be specified by" : "must specify"}</span>
+            <div className="chip-list">{must.map(s => <span key={s} className="chip">{s}</span>)}</div>
+          </div>
+        </div>
+      )}
+      {spec && !suppressMaySpec && (
+        <div className="docs-block">
+          <div style={{display:'flex',alignItems:'baseline',flexWrap:'wrap',gap:6}}>
+            <span className="h" style={{marginBottom:0,flexShrink:0}}>{level === 1 ? "may be specified by" : "may specify"}</span>
+            <div className="chip-list">{spec.map(s => <span key={s} className="chip">{s}</span>)}</div>
+          </div>
+        </div>
+      )}
+      {info.specialCases && <DocsBlock heading="Special cases">{info.specialCases}</DocsBlock>}
+      {info.postProcessing && <DocsBlock heading="Potential post-processing">{info.postProcessing}</DocsBlock>}
+    </>
+  );
+}
+
+function DocsPanel({ selectedZone, selectedType, colors }) {
+  const label = selectedZone ? selectedZone.label : selectedType;
+  if (!label) {
+    return (
+      <div className="docs">
+        <div className="docs-empty">
+          <span className="big mono">⌖</span>
+          Click a zone on the page,<br/>or select a zone type in the list to read its definition and TEI mapping.
+        </div>
+      </div>
+    );
+  }
+  const { base, modifier } = window.splitLabel(label);
+  const baseInfo = window.SEGMONTO.level1[base];
+  const modInfo = modifier ? window.SEGMONTO.level2[modifier] : null;
+  const color = colors[label];
+
+  return (
+    <div className="docs">
+      <div className="docs-head">
+        <span className="sw-big" style={{background:color}}></span>
+        <div className="docs-title">
+          <div className="docs-type">{label}</div>
+          {baseInfo && <div className="docs-fam">{baseInfo.family}</div>}
+        </div>
+      </div>
+
+      <div className="sub-section" style={{borderTop:'none',paddingTop:0,marginTop:0}}>
+        <div className="sub-head"><span className="lvl">Level 1</span><span>{base}</span></div>
+        <ZoneDoc name={base} info={baseInfo} level={1} suppressMaySpec={!!modifier} suppressTei={!!modifier} />
+      </div>
+
+      {modifier && (
+        <div className="sub-section">
+          <div className="sub-head"><span className="lvl">Level 2</span><span>-{modifier}</span></div>
+          <ZoneDoc name={modifier} info={modInfo} level={2} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- App ----
+function App() {
+  const pages = window.PAGES;
+  const [pageIdx, setPageIdx] = useState(0);
+  const page = pages[pageIdx];
+  const zones = page.zones;
+
+  const types = useMemo(() => Object.keys(zoneCounts(zones)).sort(), [zones]);
+  const colors = useMemo(() => {
+    const m = {};
+    types.forEach(t => { m[t] = colorFor(t, types); });
+    return m;
+  }, [types]);
+
+  const [visibleTypes, setVisibleTypes] = useState(() => new Set(types));
+  const [selectedId, setSelectedId] = useState(null);
+  const [hoverId, setHoverId] = useState(null);
+  const [selectedType, setSelectedType] = useState(null);
+  const [searchHighlightId, setSearchHighlightId] = useState(null);
+
+  useEffect(() => { setVisibleTypes(new Set(types)); setSelectedId(null); setSelectedType(null); setSearchHighlightId(null); }, [pageIdx]);
+
+  const selectedZone = selectedId ? zones.find(z => z.id === selectedId) : null;
+  useEffect(() => { if (selectedZone) setSelectedType(selectedZone.label); }, [selectedZone]);
+
+  return (
+    <>
+      <Header page={page} pageIdx={pageIdx} pageCount={pages.length} onPrev={() => setPageIdx(i => Math.max(0, i-1))} onNext={() => setPageIdx(i => Math.min(pages.length-1, i+1))} />
+      <div className="main">
+        <Viewer
+          page={page} zones={zones} colors={colors}
+          visibleTypes={visibleTypes} selectedId={selectedId}
+          hoverId={hoverId} setHoverId={setHoverId} setSelectedId={setSelectedId}
+          searchHighlightId={searchHighlightId}
+          pages={pages} pageIdx={pageIdx} onPageSelect={setPageIdx}
+        />
+        <aside className="side">
+          <SearchPanel zones={zones} colors={colors} onPick={(id) => { setSelectedId(id); setSearchHighlightId(id); }} />
+          <FilterPanel zones={zones} colors={colors} visibleTypes={visibleTypes} setVisibleTypes={setVisibleTypes} selectedType={selectedType} setSelectedType={(t) => { setSelectedType(t); setSelectedId(null); }} />
+          <DocsPanel selectedZone={selectedZone} selectedType={selectedType} colors={colors} />
+        </aside>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
