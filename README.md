@@ -2,7 +2,7 @@
 
 An interactive, serverless viewer for [SegmOnto](https://segmonto.github.io/) region annotations stored as [ALTO v4](https://www.loc.gov/standards/alto/) XML files. Open `index.html` directly from your filesystem (`file://`) or serve it via GitHub Pages — no build step, no server required.
 
-![Screenshot placeholder](design/screenshot.png)
+![Screenshot](screenshot.png)
 
 ---
 
